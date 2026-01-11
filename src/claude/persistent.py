@@ -26,6 +26,7 @@ class PersistentSession:
     session_id: Optional[str]
     working_directory: Path
     user_id: int
+    thread_id: Optional[int]
     lock: asyncio.Lock
     # Context tracking (updated after each response)
     context_tokens_used: int = 0
@@ -35,34 +36,41 @@ class PersistentSession:
 
 
 class PersistentClaudeManager:
-    """Manages persistent Claude processes per user."""
+    """Manages persistent Claude processes per user/thread."""
 
     def __init__(self, config: Settings):
         self.config = config
-        self.sessions: Dict[int, PersistentSession] = {}
+        # Key: (user_id, thread_id) where thread_id can be None for non-threaded chats
+        self.sessions: Dict[tuple, PersistentSession] = {}
         self._cleanup_lock = asyncio.Lock()
+
+    def _session_key(self, user_id: int, thread_id: Optional[int] = None) -> tuple:
+        """Create session key from user_id and thread_id."""
+        return (user_id, thread_id)
 
     async def get_or_create_session(
         self,
         user_id: int,
         working_directory: Path,
         session_id: Optional[str] = None,
+        thread_id: Optional[int] = None,
     ) -> PersistentSession:
         """Get existing session or create new one."""
+        key = self._session_key(user_id, thread_id)
 
         # Check for existing session
-        if user_id in self.sessions:
-            session = self.sessions[user_id]
+        if key in self.sessions:
+            session = self.sessions[key]
             # Check if process is still alive
             if session.process.returncode is None:
                 # Update working directory if changed
                 if session.working_directory != working_directory:
-                    await self.kill_session(user_id)
+                    await self.kill_session(user_id, thread_id)
                 else:
                     return session
             else:
                 # Process died, clean up
-                del self.sessions[user_id]
+                del self.sessions[key]
 
         # Create new persistent process
         process = await self._start_persistent_process(working_directory, session_id)
@@ -72,13 +80,15 @@ class PersistentClaudeManager:
             session_id=session_id,
             working_directory=working_directory,
             user_id=user_id,
+            thread_id=thread_id,
             lock=asyncio.Lock(),
         )
-        self.sessions[user_id] = session
+        self.sessions[key] = session
 
         logger.info(
             "Created persistent Claude session",
             user_id=user_id,
+            thread_id=thread_id,
             working_directory=str(working_directory),
         )
 
@@ -126,10 +136,11 @@ class PersistentClaudeManager:
         working_directory: Path,
         session_id: Optional[str] = None,
         stream_callback: Optional[Callable[[StreamUpdate], None]] = None,
+        thread_id: Optional[int] = None,
     ) -> ClaudeResponse:
         """Send a message to the persistent Claude process."""
 
-        session = await self.get_or_create_session(user_id, working_directory, session_id)
+        session = await self.get_or_create_session(user_id, working_directory, session_id, thread_id)
 
         async with session.lock:
             return await self._send_and_receive(session, prompt, stream_callback)
@@ -216,7 +227,7 @@ class PersistentClaudeManager:
         except asyncio.TimeoutError:
             logger.error("Timeout waiting for Claude response")
             # Kill and remove the session
-            await self.kill_session(session.user_id)
+            await self.kill_session(session.user_id, session.thread_id)
             raise
 
         if not result:
@@ -273,12 +284,13 @@ class PersistentClaudeManager:
 
         return None
 
-    async def interrupt_session(self, user_id: int) -> bool:
+    async def interrupt_session(self, user_id: int, thread_id: Optional[int] = None) -> bool:
         """Send interrupt signal (SIGINT/ESC) to a user's session to stop current operation."""
-        if user_id not in self.sessions:
+        key = self._session_key(user_id, thread_id)
+        if key not in self.sessions:
             return False
 
-        session = self.sessions[user_id]
+        session = self.sessions[key]
         if session.process.returncode is not None:
             # Process is dead
             return False
@@ -286,40 +298,42 @@ class PersistentClaudeManager:
         try:
             import signal
             session.process.send_signal(signal.SIGINT)
-            logger.info("Sent interrupt signal to session", user_id=user_id)
+            logger.info("Sent interrupt signal to session", user_id=user_id, thread_id=thread_id)
             return True
         except Exception as e:
-            logger.warning("Error interrupting session", user_id=user_id, error=str(e))
+            logger.warning("Error interrupting session", user_id=user_id, thread_id=thread_id, error=str(e))
             return False
 
-    async def kill_session(self, user_id: int) -> None:
+    async def kill_session(self, user_id: int, thread_id: Optional[int] = None) -> None:
         """Kill a user's persistent session."""
-        if user_id in self.sessions:
-            session = self.sessions[user_id]
+        key = self._session_key(user_id, thread_id)
+        if key in self.sessions:
+            session = self.sessions[key]
             try:
                 session.process.kill()
                 await session.process.wait()
             except Exception as e:
-                logger.warning("Error killing session", user_id=user_id, error=str(e))
-            del self.sessions[user_id]
-            logger.info("Killed persistent session", user_id=user_id)
+                logger.warning("Error killing session", user_id=user_id, thread_id=thread_id, error=str(e))
+            del self.sessions[key]
+            logger.info("Killed persistent session", user_id=user_id, thread_id=thread_id)
 
     async def kill_all_sessions(self) -> None:
         """Kill all persistent sessions."""
         async with self._cleanup_lock:
-            for user_id in list(self.sessions.keys()):
-                await self.kill_session(user_id)
+            for (user_id, thread_id) in list(self.sessions.keys()):
+                await self.kill_session(user_id, thread_id)
 
     def get_session_count(self) -> int:
         """Get number of active sessions."""
         return len(self.sessions)
 
-    def get_session_status(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_session_status(self, user_id: int, thread_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Get context and usage status for a user's session."""
-        if user_id not in self.sessions:
+        key = self._session_key(user_id, thread_id)
+        if key not in self.sessions:
             return None
 
-        session = self.sessions[user_id]
+        session = self.sessions[key]
         if session.process.returncode is not None:
             # Process is dead
             return None
@@ -337,4 +351,5 @@ class PersistentClaudeManager:
             "message_count": session.message_count,
             "working_directory": str(session.working_directory),
             "process_alive": session.process.returncode is None,
+            "thread_id": session.thread_id,
         }

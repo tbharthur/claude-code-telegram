@@ -127,6 +127,13 @@ def _format_error_message(error_str: str) -> str:
         )
 
 
+def _get_thread_id(update: Update) -> Optional[int]:
+    """Get message_thread_id for threaded mode support."""
+    if update.message and update.message.message_thread_id:
+        return update.message.message_thread_id
+    return None
+
+
 async def handle_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -134,6 +141,7 @@ async def handle_text_message(
     user_id = update.effective_user.id
     message_text = update.message.text
     settings: Settings = context.bot_data["settings"]
+    thread_id = _get_thread_id(update)
 
     # Get services
     rate_limiter: Optional[RateLimiter] = context.bot_data.get("rate_limiter")
@@ -155,13 +163,14 @@ async def handle_text_message(
                 await update.message.reply_text(f"⏱️ {limit_message}")
                 return
 
-        # Send typing indicator
-        await update.message.chat.send_action("typing")
+        # Send typing indicator (with thread support)
+        await update.message.chat.send_action("typing", message_thread_id=thread_id)
 
-        # Create progress message
+        # Create progress message (with thread support)
         progress_msg = await update.message.reply_text(
             "🤔 Processing your request...",
             reply_to_message_id=update.message.message_id,
+            message_thread_id=thread_id,
         )
 
         # Get Claude integration and storage from context
@@ -202,6 +211,7 @@ async def handle_text_message(
                 user_id=user_id,
                 session_id=session_id,
                 on_stream=stream_handler,
+                thread_id=thread_id,
             )
 
             # Update session ID

@@ -59,6 +59,7 @@ class ClaudeIntegration:
         user_id: int,
         session_id: Optional[str] = None,
         on_stream: Optional[Callable[[StreamUpdate], None]] = None,
+        thread_id: Optional[int] = None,
     ) -> ClaudeResponse:
         """Run Claude Code command with full integration."""
         logger.info(
@@ -154,6 +155,7 @@ class ClaudeIntegration:
                 continue_session=should_continue,
                 stream_callback=stream_handler,
                 user_id=user_id,
+                thread_id=thread_id,
             )
 
             # Check if tool validation failed
@@ -237,6 +239,7 @@ class ClaudeIntegration:
         continue_session: bool = False,
         stream_callback: Optional[Callable] = None,
         user_id: int = 0,
+        thread_id: Optional[int] = None,
     ) -> ClaudeResponse:
         """Execute command with SDK->subprocess fallback on JSON decode errors."""
         # Try SDK first if configured
@@ -307,6 +310,7 @@ class ClaudeIntegration:
                 working_directory=working_directory,
                 session_id=session_id,
                 stream_callback=stream_callback,
+                thread_id=thread_id,
             )
 
     async def continue_session(

@@ -1,5 +1,7 @@
 """Command handlers for bot operations."""
 
+from typing import Optional
+
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -10,6 +12,13 @@ from ...security.audit import AuditLogger
 from ...security.validators import SecurityValidator
 
 logger = structlog.get_logger()
+
+
+def _get_thread_id(update: Update) -> Optional[int]:
+    """Get message_thread_id for threaded mode support."""
+    if update.message and update.message.message_thread_id:
+        return update.message.message_thread_id
+    return None
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -578,6 +587,7 @@ async def show_projects(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /status command."""
     user_id = update.effective_user.id
+    thread_id = _get_thread_id(update)
     settings: Settings = context.bot_data["settings"]
     claude_integration = context.bot_data.get("claude_integration")
 
@@ -607,7 +617,7 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context_info = ""
     if claude_integration and hasattr(claude_integration, "persistent_manager"):
         try:
-            session_status = claude_integration.persistent_manager.get_session_status(user_id)
+            session_status = claude_integration.persistent_manager.get_session_status(user_id, thread_id)
             if session_status:
                 tokens_used = session_status.get("context_tokens_used", 0)
                 tokens_max = session_status.get("context_tokens_max", 200000)
@@ -743,6 +753,7 @@ async def export_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def stop_claude(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /stop command to interrupt Claude's current operation."""
     user_id = update.effective_user.id
+    thread_id = _get_thread_id(update)
     claude_integration: ClaudeIntegration = context.bot_data.get("claude_integration")
     audit_logger: AuditLogger = context.bot_data.get("audit_logger")
 
@@ -764,7 +775,7 @@ async def stop_claude(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     try:
-        success = await claude_integration.persistent_manager.interrupt_session(user_id)
+        success = await claude_integration.persistent_manager.interrupt_session(user_id, thread_id)
 
         if success:
             await update.message.reply_text(
@@ -870,6 +881,7 @@ async def end_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /stop command to interrupt Claude's current operation."""
     user_id = update.effective_user.id
+    thread_id = _get_thread_id(update)
 
     # Get the persistent manager from claude integration
     claude: ClaudeIntegration = context.bot_data.get("claude")
@@ -881,7 +893,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     # Try to interrupt the session
-    success = await claude.persistent_manager.interrupt_session(user_id)
+    success = await claude.persistent_manager.interrupt_session(user_id, thread_id)
 
     if success:
         await update.message.reply_text(
@@ -889,7 +901,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "Sent interrupt signal to Claude. It should stop its current operation.\n\n"
             "If Claude doesn't respond, use `/end` to terminate the session."
         )
-        logger.info("Interrupt signal sent", user_id=user_id)
+        logger.info("Interrupt signal sent", user_id=user_id, thread_id=thread_id)
     else:
         await update.message.reply_text(
             "ℹ️ **No Active Process**\n\n"
