@@ -12,6 +12,7 @@ from ..config.settings import Settings
 from .exceptions import ClaudeToolValidationError
 from .integration import ClaudeProcessManager, ClaudeResponse, StreamUpdate
 from .monitor import ToolMonitor
+from .persistent import PersistentClaudeManager
 from .sdk_integration import ClaudeSDKManager
 from .session import SessionManager
 
@@ -37,6 +38,9 @@ class ClaudeIntegration:
             sdk_manager or ClaudeSDKManager(config) if config.use_sdk else None
         )
         self.process_manager = process_manager or ClaudeProcessManager(config)
+
+        # Use persistent manager for subprocess mode (keeps process alive)
+        self.persistent_manager = PersistentClaudeManager(config)
 
         # Use SDK by default if configured
         if config.use_sdk:
@@ -149,6 +153,7 @@ class ClaudeIntegration:
                 session_id=claude_session_id,
                 continue_session=should_continue,
                 stream_callback=stream_handler,
+                user_id=user_id,
             )
 
             # Check if tool validation failed
@@ -231,6 +236,7 @@ class ClaudeIntegration:
         session_id: Optional[str] = None,
         continue_session: bool = False,
         stream_callback: Optional[Callable] = None,
+        user_id: int = 0,
     ) -> ClaudeResponse:
         """Execute command with SDK->subprocess fallback on JSON decode errors."""
         # Try SDK first if configured
@@ -293,13 +299,13 @@ class ClaudeIntegration:
                     )
                     raise
         else:
-            # Use subprocess directly if SDK not configured
-            logger.debug("Using subprocess execution (SDK disabled)")
-            return await self.process_manager.execute_command(
+            # Use persistent subprocess (keeps process alive between messages)
+            logger.debug("Using persistent subprocess execution (SDK disabled)")
+            return await self.persistent_manager.send_message(
+                user_id=user_id,
                 prompt=prompt,
                 working_directory=working_directory,
                 session_id=session_id,
-                continue_session=continue_session,
                 stream_callback=stream_callback,
             )
 

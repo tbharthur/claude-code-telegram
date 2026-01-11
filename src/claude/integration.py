@@ -201,6 +201,9 @@ class ClaudeProcessManager:
         # stream-json requires --verbose when using --print mode
         cmd.extend(["--verbose"])
 
+        # Skip permission prompts for autonomous operation
+        cmd.extend(["--dangerously-skip-permissions"])
+
         # Add safety limits
         cmd.extend(["--max-turns", str(self.config.claude_max_turns)])
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=Claude Code Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/telegram-claude
+Environment=PATH=/home/pi/.cache/pypoetry/virtualenvs/claude-code-telegram-oMUnBjKd-py3.13/bin:/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/pi/.cache/pypoetry/virtualenvs/claude-code-telegram-oMUnBjKd-py3.13/bin/python -m src.main
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
