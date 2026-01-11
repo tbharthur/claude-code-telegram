@@ -220,9 +220,17 @@ class PersistentClaudeManager:
         if not result:
             raise Exception("No result received from Claude")
 
-        # Extract context window info
-        context_tokens_used = result.get("total_tokens", 0) or result.get("tokens_used", 0)
-        context_tokens_max = result.get("max_tokens", 0) or result.get("context_window", 200000)
+        # Extract context window info from nested structure
+        context_window = result.get("context_window", {})
+        current_usage = context_window.get("current_usage") or {}
+
+        # Current context usage = input + cache tokens
+        context_tokens_used = (
+            current_usage.get("input_tokens", 0) +
+            current_usage.get("cache_creation_input_tokens", 0) +
+            current_usage.get("cache_read_input_tokens", 0)
+        )
+        context_tokens_max = context_window.get("context_window_size", 200000)
         cost = result.get("cost_usd", 0.0)
 
         # Update session tracking
