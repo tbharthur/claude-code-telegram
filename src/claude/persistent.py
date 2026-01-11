@@ -113,6 +113,8 @@ class PersistentClaudeManager:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(working_directory),
+            # Increase buffer limit to handle large JSON outputs (10MB)
+            limit=10 * 1024 * 1024,
         )
 
         return process
@@ -270,6 +272,25 @@ class PersistentClaudeManager:
             return StreamUpdate(type="system", content=str(msg))
 
         return None
+
+    async def interrupt_session(self, user_id: int) -> bool:
+        """Send interrupt signal (SIGINT/ESC) to a user's session to stop current operation."""
+        if user_id not in self.sessions:
+            return False
+
+        session = self.sessions[user_id]
+        if session.process.returncode is not None:
+            # Process is dead
+            return False
+
+        try:
+            import signal
+            session.process.send_signal(signal.SIGINT)
+            logger.info("Sent interrupt signal to session", user_id=user_id)
+            return True
+        except Exception as e:
+            logger.warning("Error interrupting session", user_id=user_id, error=str(e))
+            return False
 
     async def kill_session(self, user_id: int) -> None:
         """Kill a user's persistent session."""

@@ -740,6 +740,70 @@ async def export_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+async def stop_claude(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /stop command to interrupt Claude's current operation."""
+    user_id = update.effective_user.id
+    claude_integration: ClaudeIntegration = context.bot_data.get("claude_integration")
+    audit_logger: AuditLogger = context.bot_data.get("audit_logger")
+
+    if not claude_integration:
+        await update.message.reply_text(
+            "❌ **Claude Integration Not Available**\n\n"
+            "Claude integration is not properly configured.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Check if there's a persistent manager with an active session
+    if not hasattr(claude_integration, "persistent_manager"):
+        await update.message.reply_text(
+            "❌ **No Active Process**\n\n"
+            "No Claude process is running to stop.",
+            parse_mode="Markdown",
+        )
+        return
+
+    try:
+        success = await claude_integration.persistent_manager.interrupt_session(user_id)
+
+        if success:
+            await update.message.reply_text(
+                "⏹️ **Stop Signal Sent**\n\n"
+                "Sent interrupt signal to Claude. The current operation should stop shortly.\n\n"
+                "If Claude doesn't respond, you can use `/end` to terminate the session completely.",
+                parse_mode="Markdown",
+            )
+
+            # Log successful interrupt
+            if audit_logger:
+                await audit_logger.log_command(
+                    user_id=user_id, command="stop", args=[], success=True
+                )
+        else:
+            await update.message.reply_text(
+                "ℹ️ **No Active Operation**\n\n"
+                "There's no active Claude operation to stop.\n\n"
+                "Claude may have already finished, or no session is running.",
+                parse_mode="Markdown",
+            )
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error("Error in stop command", error=error_msg, user_id=user_id)
+
+        await update.message.reply_text(
+            f"❌ **Error Stopping Claude**\n\n"
+            f"An error occurred: `{error_msg}`\n\n"
+            f"Try using `/end` to terminate the session completely.",
+            parse_mode="Markdown",
+        )
+
+        if audit_logger:
+            await audit_logger.log_command(
+                user_id=user_id, command="stop", args=[], success=False
+            )
+
+
 async def end_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /end command to terminate the current session."""
     user_id = update.effective_user.id
@@ -801,6 +865,37 @@ async def end_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
     logger.info("Session ended by user", user_id=user_id, session_id=claude_session_id)
+
+
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /stop command to interrupt Claude's current operation."""
+    user_id = update.effective_user.id
+
+    # Get the persistent manager from claude integration
+    claude: ClaudeIntegration = context.bot_data.get("claude")
+    if not claude or not hasattr(claude, "persistent_manager"):
+        await update.message.reply_text(
+            "❌ **Cannot Interrupt**\n\n"
+            "No active Claude process to interrupt."
+        )
+        return
+
+    # Try to interrupt the session
+    success = await claude.persistent_manager.interrupt_session(user_id)
+
+    if success:
+        await update.message.reply_text(
+            "🛑 **Interrupt Sent**\n\n"
+            "Sent interrupt signal to Claude. It should stop its current operation.\n\n"
+            "If Claude doesn't respond, use `/end` to terminate the session."
+        )
+        logger.info("Interrupt signal sent", user_id=user_id)
+    else:
+        await update.message.reply_text(
+            "ℹ️ **No Active Process**\n\n"
+            "No active Claude process to interrupt.\n\n"
+            "Use `/new` to start a new session."
+        )
 
 
 async def quick_actions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
