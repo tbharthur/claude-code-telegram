@@ -579,6 +579,7 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle /status command."""
     user_id = update.effective_user.id
     settings: Settings = context.bot_data["settings"]
+    claude_integration = context.bot_data.get("claude_integration")
 
     # Get session info
     claude_session_id = context.user_data.get("claude_session_id")
@@ -602,15 +603,49 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception:
             usage_info = "💰 Usage: _Unable to retrieve_\n"
 
+    # Get context window status from persistent manager
+    context_info = ""
+    if claude_integration and hasattr(claude_integration, "persistent_manager"):
+        try:
+            session_status = claude_integration.persistent_manager.get_session_status(user_id)
+            if session_status:
+                tokens_used = session_status.get("context_tokens_used", 0)
+                tokens_max = session_status.get("context_tokens_max", 200000)
+                context_pct = session_status.get("context_percentage", 0)
+                msg_count = session_status.get("message_count", 0)
+
+                # Format tokens in K
+                tokens_used_k = tokens_used / 1000
+                tokens_max_k = tokens_max / 1000
+
+                # Context bar visualization
+                bar_length = 10
+                filled = int(context_pct / 100 * bar_length)
+                bar = "█" * filled + "░" * (bar_length - filled)
+
+                context_info = f"📝 Context: [{bar}] {tokens_used_k:.0f}K / {tokens_max_k:.0f}K ({context_pct:.0f}%)\n"
+                context_info += f"💬 Messages: {msg_count}\n"
+        except Exception:
+            pass
+
     # Format status message
     status_lines = [
         "📊 **Session Status**",
         "",
         f"📂 Directory: `{relative_path}/`",
         f"🤖 Claude Session: {'✅ Active' if claude_session_id else '❌ None'}",
-        usage_info.rstrip(),
-        f"🕐 Last Update: {update.message.date.strftime('%H:%M:%S UTC')}",
     ]
+
+    if context_info:
+        status_lines.append(context_info.rstrip())
+
+    status_lines.extend([
+        usage_info.rstrip() if usage_info else "",
+        f"🕐 Last Update: {update.message.date.strftime('%H:%M:%S UTC')}",
+    ])
+
+    # Filter out empty lines
+    status_lines = [line for line in status_lines if line]
 
     if claude_session_id:
         status_lines.append(f"🆔 Session ID: `{claude_session_id[:8]}...`")

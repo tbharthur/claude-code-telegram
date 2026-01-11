@@ -40,6 +40,9 @@ class ClaudeResponse:
     is_error: bool = False
     error_type: Optional[str] = None
     tools_used: List[Dict[str, Any]] = field(default_factory=list)
+    # Context window tracking
+    context_tokens_used: int = 0
+    context_tokens_max: int = 0
 
 
 @dataclass

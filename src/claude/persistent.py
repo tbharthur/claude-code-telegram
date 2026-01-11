@@ -27,6 +27,11 @@ class PersistentSession:
     working_directory: Path
     user_id: int
     lock: asyncio.Lock
+    # Context tracking (updated after each response)
+    context_tokens_used: int = 0
+    context_tokens_max: int = 0
+    total_cost: float = 0.0
+    message_count: int = 0
 
 
 class PersistentClaudeManager:
@@ -215,14 +220,27 @@ class PersistentClaudeManager:
         if not result:
             raise Exception("No result received from Claude")
 
+        # Extract context window info
+        context_tokens_used = result.get("total_tokens", 0) or result.get("tokens_used", 0)
+        context_tokens_max = result.get("max_tokens", 0) or result.get("context_window", 200000)
+        cost = result.get("cost_usd", 0.0)
+
+        # Update session tracking
+        session.context_tokens_used = context_tokens_used
+        session.context_tokens_max = context_tokens_max
+        session.total_cost += cost
+        session.message_count += 1
+
         return ClaudeResponse(
             content=result.get("result", ""),
             session_id=result.get("session_id", session.session_id or ""),
-            cost=result.get("cost_usd", 0.0),
+            cost=cost,
             duration_ms=result.get("duration_ms", 0),
             num_turns=result.get("num_turns", 0),
             is_error=result.get("is_error", False),
             tools_used=[],
+            context_tokens_used=context_tokens_used,
+            context_tokens_max=context_tokens_max,
         )
 
     def _parse_stream_message(self, msg: Dict[str, Any]) -> Optional[StreamUpdate]:
@@ -266,3 +284,28 @@ class PersistentClaudeManager:
     def get_session_count(self) -> int:
         """Get number of active sessions."""
         return len(self.sessions)
+
+    def get_session_status(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get context and usage status for a user's session."""
+        if user_id not in self.sessions:
+            return None
+
+        session = self.sessions[user_id]
+        if session.process.returncode is not None:
+            # Process is dead
+            return None
+
+        context_percentage = 0
+        if session.context_tokens_max > 0:
+            context_percentage = (session.context_tokens_used / session.context_tokens_max) * 100
+
+        return {
+            "session_id": session.session_id,
+            "context_tokens_used": session.context_tokens_used,
+            "context_tokens_max": session.context_tokens_max,
+            "context_percentage": context_percentage,
+            "total_cost": session.total_cost,
+            "message_count": session.message_count,
+            "working_directory": str(session.working_directory),
+            "process_alive": session.process.returncode is None,
+        }
