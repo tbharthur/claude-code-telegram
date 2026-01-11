@@ -885,10 +885,25 @@ async def handle_unknown_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle unrecognized slash commands by passing them to Claude.
-    
+
     This allows Claude Code slash commands like /commit, /review, etc.
     to work through Telegram.
     """
     # Just pass the full message (including the /) to Claude
+    await handle_text_message(update, context)
+
+
+async def handle_claude_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle // prefixed messages by stripping one / and passing to Claude.
+
+    Use // to explicitly send a slash command to Claude, e.g.:
+    - //commit -> sends /commit to Claude
+    - //compact -> sends /compact to Claude
+    """
+    # Strip the first / so //commit becomes /commit
+    original_text = update.message.text
+    update.message.text = original_text[1:]  # Remove first character
     await handle_text_message(update, context)
 

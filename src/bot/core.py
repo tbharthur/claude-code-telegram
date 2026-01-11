@@ -126,6 +126,15 @@ class ClaudeCodeBot:
             self.app.add_handler(CommandHandler(cmd, self._inject_deps(handler)))
 
         # Message handlers with priority groups
+        # Handle // prefix for explicit Claude commands (highest priority)
+        self.app.add_handler(
+            MessageHandler(
+                filters.Regex(r"^//"),
+                self._inject_deps(message.handle_claude_command),
+            ),
+            group=5,
+        )
+
         self.app.add_handler(
             MessageHandler(
                 filters.TEXT & ~filters.COMMAND,
