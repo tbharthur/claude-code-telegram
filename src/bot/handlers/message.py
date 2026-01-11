@@ -879,3 +879,16 @@ def _update_working_directory_from_claude_response(
                     "Invalid path in Claude response", path=match, error=str(e)
                 )
                 continue
+
+
+async def handle_unknown_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle unrecognized slash commands by passing them to Claude.
+    
+    This allows Claude Code slash commands like /commit, /review, etc.
+    to work through Telegram.
+    """
+    # Just pass the full message (including the /) to Claude
+    await handle_text_message(update, context)
+

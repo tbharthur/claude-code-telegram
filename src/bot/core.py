@@ -134,6 +134,16 @@ class ClaudeCodeBot:
             group=10,
         )
 
+        # Fallback handler for unrecognized slash commands (passes to Claude)
+        # This catches /commit, /review, etc. that are Claude Code commands
+        self.app.add_handler(
+            MessageHandler(
+                filters.COMMAND,
+                self._inject_deps(message.handle_unknown_command),
+            ),
+            group=20,  # Lower priority than bot commands
+        )
+
         self.app.add_handler(
             MessageHandler(
                 filters.Document.ALL, self._inject_deps(message.handle_document)
