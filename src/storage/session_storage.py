@@ -248,19 +248,20 @@ class SQLiteSessionStorage(SessionStorage):
         project_path: str,
     ) -> None:
         """Store the user's active session for resume after restart."""
-        # Use NULL for None thread_id (main chat) - SQLite handles NULL in UNIQUE constraints
-        # with COALESCE to ensure consistent matching
+        # Use 0 for None thread_id (main chat) to ensure PRIMARY KEY works correctly
+        # SQLite treats NULL as unique, so (user_id, NULL) won't conflict with itself
+        effective_thread_id = thread_id if thread_id is not None else 0
         async with self.db_manager.get_connection() as conn:
             await conn.execute(
                 """
                 INSERT INTO user_active_sessions (user_id, thread_id, session_id, project_path, updated_at)
                 VALUES (?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(user_id, COALESCE(thread_id, 0)) DO UPDATE SET
+                ON CONFLICT(user_id, thread_id) DO UPDATE SET
                     session_id = excluded.session_id,
                     project_path = excluded.project_path,
                     updated_at = datetime('now')
                 """,
-                (user_id, thread_id, session_id, project_path),
+                (user_id, effective_thread_id, session_id, project_path),
             )
             await conn.commit()
 
@@ -278,24 +279,16 @@ class SQLiteSessionStorage(SessionStorage):
 
         Returns: (session_id, project_path) or None if not found.
         """
+        # Use 0 for None thread_id to match how we store it
+        effective_thread_id = thread_id if thread_id is not None else 0
         async with self.db_manager.get_connection() as conn:
-            # Use COALESCE to match NULL thread_id consistently (NULL -> 0 for comparison)
-            if thread_id is None:
-                cursor = await conn.execute(
-                    """
-                    SELECT session_id, project_path FROM user_active_sessions
-                    WHERE user_id = ? AND thread_id IS NULL
-                    """,
-                    (user_id,),
-                )
-            else:
-                cursor = await conn.execute(
-                    """
-                    SELECT session_id, project_path FROM user_active_sessions
-                    WHERE user_id = ? AND thread_id = ?
-                    """,
-                    (user_id, thread_id),
-                )
+            cursor = await conn.execute(
+                """
+                SELECT session_id, project_path FROM user_active_sessions
+                WHERE user_id = ? AND thread_id = ?
+                """,
+                (user_id, effective_thread_id),
+            )
             row = await cursor.fetchone()
 
             if row:
@@ -311,25 +304,17 @@ class SQLiteSessionStorage(SessionStorage):
     async def clear_user_active_session(
         self, user_id: int, thread_id: Optional[int]
     ) -> None:
-        """Clear the user's active session (e.g., on /new command)."""
+        """Clear the user's active session (e.g., on /clear command)."""
+        # Use 0 for None thread_id to match how we store it
+        effective_thread_id = thread_id if thread_id is not None else 0
         async with self.db_manager.get_connection() as conn:
-            # Use proper NULL handling for thread_id
-            if thread_id is None:
-                await conn.execute(
-                    """
-                    DELETE FROM user_active_sessions
-                    WHERE user_id = ? AND thread_id IS NULL
-                    """,
-                    (user_id,),
-                )
-            else:
-                await conn.execute(
-                    """
-                    DELETE FROM user_active_sessions
-                    WHERE user_id = ? AND thread_id = ?
-                    """,
-                    (user_id, thread_id),
-                )
+            await conn.execute(
+                """
+                DELETE FROM user_active_sessions
+                WHERE user_id = ? AND thread_id = ?
+                """,
+                (user_id, effective_thread_id),
+            )
             await conn.commit()
 
         logger.debug(
