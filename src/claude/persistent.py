@@ -63,8 +63,25 @@ class PersistentClaudeManager:
             session = self.sessions[key]
             # Check if process is still alive
             if session.process.returncode is None:
-                # Update working directory if changed
+                # Kill session if working directory or session_id changed
                 if session.working_directory != working_directory:
+                    logger.info(
+                        "Killing session due to directory change",
+                        user_id=user_id,
+                        thread_id=thread_id,
+                        old_dir=str(session.working_directory),
+                        new_dir=str(working_directory),
+                    )
+                    await self.kill_session(user_id, thread_id)
+                elif session_id and session.session_id != session_id:
+                    # Session ID changed - need to restart with --resume for the new session
+                    logger.info(
+                        "Killing session to resume different session",
+                        user_id=user_id,
+                        thread_id=thread_id,
+                        old_session=session.session_id,
+                        new_session=session_id,
+                    )
                     await self.kill_session(user_id, thread_id)
                 else:
                     return session
@@ -353,3 +370,26 @@ class PersistentClaudeManager:
             "process_alive": session.process.returncode is None,
             "thread_id": session.thread_id,
         }
+
+    def get_all_sessions_info(self) -> list[Dict[str, Any]]:
+        """Get info about all active sessions."""
+        sessions_info = []
+        for (user_id, thread_id), session in self.sessions.items():
+            if session.process.returncode is not None:
+                # Process is dead, skip
+                continue
+
+            context_percentage = 0
+            if session.context_tokens_max > 0:
+                context_percentage = (session.context_tokens_used / session.context_tokens_max) * 100
+
+            sessions_info.append({
+                "user_id": user_id,
+                "thread_id": thread_id,
+                "session_id": session.session_id,
+                "context_percentage": context_percentage,
+                "message_count": session.message_count,
+                "working_directory": str(session.working_directory),
+            })
+
+        return sessions_info

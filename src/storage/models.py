@@ -59,6 +59,7 @@ class SessionModel:
     total_turns: int = 0
     message_count: int = 0
     is_active: bool = True
+    thread_id: Optional[int] = None  # Telegram forum topic thread ID
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

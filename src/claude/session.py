@@ -41,6 +41,7 @@ class ClaudeSession:
     message_count: int = 0
     tools_used: List[str] = field(default_factory=list)
     is_new_session: bool = False  # True if session hasn't been sent to Claude Code yet
+    thread_id: Optional[int] = None  # Telegram forum topic thread ID
 
     def is_expired(self, timeout_hours: int) -> bool:
         """Check if session has expired."""
@@ -73,6 +74,7 @@ class ClaudeSession:
             "total_turns": self.total_turns,
             "message_count": self.message_count,
             "tools_used": self.tools_used,
+            "thread_id": self.thread_id,
         }
 
     @classmethod
@@ -88,6 +90,7 @@ class ClaudeSession:
             total_turns=data.get("total_turns", 0),
             message_count=data.get("message_count", 0),
             tools_used=data.get("tools_used", []),
+            thread_id=data.get("thread_id"),
         )
 
 
@@ -165,6 +168,7 @@ class SessionManager:
         user_id: int,
         project_path: Path,
         session_id: Optional[str] = None,
+        thread_id: Optional[int] = None,
     ) -> ClaudeSession:
         """Get existing session or create new one."""
         logger.info(
@@ -172,6 +176,7 @@ class SessionManager:
             user_id=user_id,
             project_path=str(project_path),
             session_id=session_id,
+            thread_id=thread_id,
         )
 
         # Check for existing session
@@ -209,6 +214,7 @@ class SessionManager:
             project_path=project_path,
             created_at=datetime.utcnow(),
             last_used=datetime.utcnow(),
+            thread_id=thread_id,
         )
 
         # Mark as new session (not from Claude Code yet)
@@ -223,6 +229,7 @@ class SessionManager:
             session_id=new_session.session_id,
             user_id=user_id,
             project_path=str(project_path),
+            thread_id=thread_id,
         )
 
         return new_session
@@ -338,3 +345,51 @@ class SessionManager:
             "total_messages": total_messages,
             "projects": list(set(str(s.project_path) for s in sessions)),
         }
+
+    async def set_user_active_session(
+        self,
+        user_id: int,
+        thread_id: Optional[int],
+        session_id: str,
+        project_path: Path,
+    ) -> None:
+        """Store user's active session for resume after restart."""
+        # Only persist if storage supports it
+        if hasattr(self.storage, "set_user_active_session"):
+            await self.storage.set_user_active_session(
+                user_id, thread_id, session_id, str(project_path)
+            )
+
+    async def get_user_active_session(
+        self, user_id: int, thread_id: Optional[int]
+    ) -> Optional[tuple]:
+        """Get user's active session for resume after restart.
+
+        Returns: (session_id, project_path) or None if not found/expired.
+        """
+        if hasattr(self.storage, "get_user_active_session"):
+            active = await self.storage.get_user_active_session(user_id, thread_id)
+            if active:
+                session_id, project_path = active
+                # Verify session still exists in storage and is not expired
+                session = await self.storage.load_session(session_id)
+                if session and not session.is_expired(self.config.session_timeout_hours):
+                    return active
+                else:
+                    # Clean up stale reference
+                    logger.info(
+                        "Cleaning up stale session reference",
+                        session_id=session_id,
+                        user_id=user_id,
+                        expired=session.is_expired(self.config.session_timeout_hours) if session else "not_found",
+                    )
+                    await self.clear_user_active_session(user_id, thread_id)
+            return None
+        return None
+
+    async def clear_user_active_session(
+        self, user_id: int, thread_id: Optional[int]
+    ) -> None:
+        """Clear user's active session (e.g., on /new command)."""
+        if hasattr(self.storage, "clear_user_active_session"):
+            await self.storage.clear_user_active_session(user_id, thread_id)

@@ -72,7 +72,7 @@ class ClaudeIntegration:
 
         # Get or create session
         session = await self.session_manager.get_or_create_session(
-            user_id, working_directory, session_id
+            user_id, working_directory, session_id, thread_id=thread_id
         )
 
         # Track streaming updates and validate tool calls
@@ -319,32 +319,45 @@ class ClaudeIntegration:
         working_directory: Path,
         prompt: Optional[str] = None,
         on_stream: Optional[Callable[[StreamUpdate], None]] = None,
+        thread_id: Optional[int] = None,
     ) -> Optional[ClaudeResponse]:
-        """Continue the most recent session."""
+        """Continue the most recent session for this thread."""
         logger.info(
             "Continuing session",
             user_id=user_id,
             working_directory=str(working_directory),
+            thread_id=thread_id,
             has_prompt=bool(prompt),
         )
 
         # Get user's sessions
         sessions = await self.session_manager._get_user_sessions(user_id)
 
-        # Find most recent session in this directory (exclude temporary sessions)
+        # Find most recent session in this directory and thread (exclude temporary sessions)
         matching_sessions = [
             s
             for s in sessions
             if s.project_path == working_directory
+            and s.thread_id == thread_id
             and not s.session_id.startswith("temp_")
         ]
 
         if not matching_sessions:
-            logger.info("No matching sessions found", user_id=user_id)
+            logger.info(
+                "No matching sessions found",
+                user_id=user_id,
+                thread_id=thread_id,
+            )
             return None
 
         # Get most recent
         latest_session = max(matching_sessions, key=lambda s: s.last_used)
+
+        logger.info(
+            "Found session to continue",
+            session_id=latest_session.session_id,
+            thread_id=thread_id,
+        )
 
         # Continue session
         return await self.run_command(
@@ -353,6 +366,7 @@ class ClaudeIntegration:
             user_id=user_id,
             session_id=latest_session.session_id,
             on_stream=on_stream,
+            thread_id=thread_id,
         )
 
     async def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -379,6 +393,33 @@ class ClaudeIntegration:
     async def cleanup_expired_sessions(self) -> int:
         """Clean up expired sessions."""
         return await self.session_manager.cleanup_expired_sessions()
+
+    async def set_user_active_session(
+        self,
+        user_id: int,
+        thread_id: Optional[int],
+        session_id: str,
+        project_path: Path,
+    ) -> None:
+        """Store user's active session for resume after restart."""
+        await self.session_manager.set_user_active_session(
+            user_id, thread_id, session_id, project_path
+        )
+
+    async def get_user_active_session(
+        self, user_id: int, thread_id: Optional[int]
+    ) -> Optional[tuple]:
+        """Get user's active session for resume after restart.
+
+        Returns: (session_id, project_path) or None if not found.
+        """
+        return await self.session_manager.get_user_active_session(user_id, thread_id)
+
+    async def clear_user_active_session(
+        self, user_id: int, thread_id: Optional[int]
+    ) -> None:
+        """Clear user's active session (e.g., on /new command)."""
+        await self.session_manager.clear_user_active_session(user_id, thread_id)
 
     async def get_tool_stats(self) -> Dict[str, Any]:
         """Get tool usage statistics."""

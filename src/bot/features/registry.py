@@ -76,12 +76,12 @@ class FeatureRegistry:
         except Exception as e:
             logger.error("Failed to initialize image handler", error=str(e))
 
-        # Conversation enhancements - always enabled
-        try:
-            self.features["conversation"] = ConversationEnhancer()
-            logger.info("Conversation enhancer feature enabled")
-        except Exception as e:
-            logger.error("Failed to initialize conversation enhancer", error=str(e))
+        # Conversation enhancements - DISABLED (generates irrelevant keyword-based suggestions)
+        # try:
+        #     self.features["conversation"] = ConversationEnhancer()
+        #     logger.info("Conversation enhancer feature enabled")
+        # except Exception as e:
+        #     logger.error("Failed to initialize conversation enhancer", error=str(e))
 
         logger.info(
             "Feature initialization complete",

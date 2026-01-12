@@ -217,6 +217,11 @@ async def handle_text_message(
             # Update session ID
             context.user_data["claude_session_id"] = claude_response.session_id
 
+            # Persist session for resume after restart
+            await claude_integration.set_user_active_session(
+                user_id, thread_id, claude_response.session_id, current_dir
+            )
+
             # Check if Claude changed the working directory and update our tracking
             _update_working_directory_from_claude_response(
                 claude_response, context, settings, user_id
@@ -303,22 +308,14 @@ async def handle_text_message(
         if conversation_enhancer and claude_response:
             try:
                 # Update conversation context
-                conversation_context = conversation_enhancer.update_context(
-                    session_id=claude_response.session_id,
-                    user_id=user_id,
-                    working_directory=str(current_dir),
-                    tools_used=claude_response.tools_used or [],
-                    response_content=claude_response.content,
-                )
+                conversation_enhancer.update_context(user_id, claude_response)
+                conversation_context = conversation_enhancer.get_or_create_context(user_id)
 
                 # Check if we should show follow-up suggestions
-                if conversation_enhancer.should_show_suggestions(
-                    claude_response.tools_used or [], claude_response.content
-                ):
+                if conversation_enhancer.should_show_suggestions(claude_response):
                     # Generate follow-up suggestions
                     suggestions = conversation_enhancer.generate_follow_up_suggestions(
-                        claude_response.content,
-                        claude_response.tools_used or [],
+                        claude_response,
                         conversation_context,
                     )
 
@@ -378,6 +375,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     user_id = update.effective_user.id
     document = update.message.document
     settings: Settings = context.bot_data["settings"]
+    thread_id = _get_thread_id(update)
 
     # Get services
     security_validator: Optional[SecurityValidator] = context.bot_data.get(
@@ -531,10 +529,18 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 working_directory=current_dir,
                 user_id=user_id,
                 session_id=session_id,
+                thread_id=thread_id,
             )
 
             # Update session ID
             context.user_data["claude_session_id"] = claude_response.session_id
+
+            # Persist session for resume after restart
+            claude_integration = context.bot_data.get("claude_integration")
+            if claude_integration:
+                await claude_integration.set_user_active_session(
+                    user_id, thread_id, claude_response.session_id, current_dir
+                )
 
             # Check if Claude changed the working directory and update our tracking
             _update_working_directory_from_claude_response(
@@ -606,6 +612,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Handle photo uploads."""
     user_id = update.effective_user.id
     settings: Settings = context.bot_data["settings"]
+    thread_id = _get_thread_id(update)
 
     # Check if enhanced image handler is available
     features = context.bot_data.get("features")
@@ -662,6 +669,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
                 # Update session ID
                 context.user_data["claude_session_id"] = claude_response.session_id
+
+                # Persist session for resume after restart
+                if claude_integration:
+                    await claude_integration.set_user_active_session(
+                        user_id, thread_id, claude_response.session_id, current_dir
+                    )
 
                 # Format and send response
                 from ..utils.formatting import ResponseFormatter

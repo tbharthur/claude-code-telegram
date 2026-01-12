@@ -1,5 +1,7 @@
 """Handle inline keyboard callbacks."""
 
+from typing import Optional
+
 import structlog
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
@@ -10,6 +12,13 @@ from ...security.audit import AuditLogger
 from ...security.validators import SecurityValidator
 
 logger = structlog.get_logger()
+
+
+def _get_thread_id_from_query(query) -> Optional[int]:
+    """Get message_thread_id from callback query for forum topic support."""
+    if query.message and query.message.message_thread_id:
+        return query.message.message_thread_id
+    return None
 
 
 async def handle_callback_query(
@@ -123,6 +132,25 @@ async def handle_cd_callback(
         # Update directory and clear session
         context.user_data["current_directory"] = new_path
         context.user_data["claude_session_id"] = None
+
+        # Kill any persistent Claude process for this user/thread to prevent zombie processes
+        thread_id = _get_thread_id_from_query(query)
+        claude_integration: ClaudeIntegration = context.bot_data.get("claude_integration")
+        if claude_integration and hasattr(claude_integration, "persistent_manager"):
+            try:
+                await claude_integration.persistent_manager.kill_session(user_id, thread_id)
+                logger.debug(
+                    "Killed persistent Claude session on directory change (callback)",
+                    user_id=user_id,
+                    thread_id=thread_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to kill persistent Claude session (callback)",
+                    error=str(e),
+                    user_id=user_id,
+                    thread_id=thread_id,
+                )
 
         # Send confirmation with new directory info
         relative_path = new_path.relative_to(settings.approved_directory)
@@ -417,6 +445,7 @@ async def _handle_continue_action(query, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
     settings: Settings = context.bot_data["settings"]
     claude_integration: ClaudeIntegration = context.bot_data.get("claude_integration")
+    thread_id = _get_thread_id_from_query(query)
 
     current_dir = context.user_data.get(
         "current_directory", settings.approved_directory
@@ -448,6 +477,7 @@ async def _handle_continue_action(query, context: ContextTypes.DEFAULT_TYPE) -> 
                 working_directory=current_dir,
                 user_id=user_id,
                 session_id=claude_session_id,
+                thread_id=thread_id,
             )
         else:
             # No session in context, try to find the most recent session
@@ -461,6 +491,7 @@ async def _handle_continue_action(query, context: ContextTypes.DEFAULT_TYPE) -> 
                 user_id=user_id,
                 working_directory=current_dir,
                 prompt=None,  # No prompt = use --continue
+                thread_id=thread_id,
             )
 
         if claude_response:

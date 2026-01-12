@@ -133,9 +133,9 @@ class SessionRepository:
         async with self.db.get_connection() as conn:
             await conn.execute(
                 """
-                INSERT INTO sessions 
-                (session_id, user_id, project_path, created_at, last_used)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO sessions
+                (session_id, user_id, project_path, created_at, last_used, thread_id)
+                VALUES (?, ?, ?, ?, ?, ?)
             """,
                 (
                     session.session_id,
@@ -143,6 +143,7 @@ class SessionRepository:
                     session.project_path,
                     session.created_at,
                     session.last_used,
+                    session.thread_id,
                 ),
             )
             await conn.commit()
@@ -151,6 +152,7 @@ class SessionRepository:
                 "Created session",
                 session_id=session.session_id,
                 user_id=session.user_id,
+                thread_id=session.thread_id,
             )
             return session
 
@@ -159,9 +161,9 @@ class SessionRepository:
         async with self.db.get_connection() as conn:
             await conn.execute(
                 """
-                UPDATE sessions 
-                SET last_used = ?, total_cost = ?, total_turns = ?, 
-                    message_count = ?, is_active = ?
+                UPDATE sessions
+                SET last_used = ?, total_cost = ?, total_turns = ?,
+                    message_count = ?, is_active = ?, thread_id = ?
                 WHERE session_id = ?
             """,
                 (
@@ -170,6 +172,7 @@ class SessionRepository:
                     session.total_turns,
                     session.message_count,
                     session.is_active,
+                    session.thread_id,
                     session.session_id,
                 ),
             )
@@ -182,6 +185,37 @@ class SessionRepository:
         async with self.db.get_connection() as conn:
             query = "SELECT * FROM sessions WHERE user_id = ?"
             params = [user_id]
+
+            if active_only:
+                query += " AND is_active = TRUE"
+
+            query += " ORDER BY last_used DESC"
+
+            cursor = await conn.execute(query, params)
+            rows = await cursor.fetchall()
+            return [SessionModel.from_row(row) for row in rows]
+
+    async def get_user_sessions_by_thread(
+        self, user_id: int, thread_id: Optional[int], active_only: bool = True
+    ) -> List[SessionModel]:
+        """Get sessions for user filtered by thread_id.
+
+        Args:
+            user_id: The user's ID
+            thread_id: The forum topic thread ID (None for main chat sessions)
+            active_only: If True, only return active sessions
+
+        Returns:
+            List of sessions matching the user_id and thread_id
+        """
+        async with self.db.get_connection() as conn:
+            if thread_id is None:
+                # Match sessions with NULL thread_id (main chat)
+                query = "SELECT * FROM sessions WHERE user_id = ? AND thread_id IS NULL"
+                params = [user_id]
+            else:
+                query = "SELECT * FROM sessions WHERE user_id = ? AND thread_id = ?"
+                params = [user_id, thread_id]
 
             if active_only:
                 query += " AND is_active = TRUE"

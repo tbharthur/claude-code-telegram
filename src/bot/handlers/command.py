@@ -117,6 +117,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def new_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /new command."""
     settings: Settings = context.bot_data["settings"]
+    user_id = update.effective_user.id
+    thread_id = _get_thread_id(update)
 
     # For now, we'll use a simple session concept
     # This will be enhanced when we implement proper session management
@@ -130,6 +132,11 @@ async def new_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # Clear any existing session data
     context.user_data["claude_session_id"] = None
     context.user_data["session_started"] = True
+
+    # Clear persistent active session
+    claude_integration = context.bot_data.get("claude_integration")
+    if claude_integration:
+        await claude_integration.clear_user_active_session(user_id, thread_id)
 
     keyboard = [
         [
@@ -164,6 +171,7 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     settings: Settings = context.bot_data["settings"]
     claude_integration: ClaudeIntegration = context.bot_data.get("claude_integration")
     audit_logger: AuditLogger = context.bot_data.get("audit_logger")
+    thread_id = _get_thread_id(update)
 
     # Parse optional prompt from command arguments
     prompt = " ".join(context.args) if context.args else None
@@ -182,13 +190,58 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         # Check if there's an existing session in user context
         claude_session_id = context.user_data.get("claude_session_id")
+        restored_from_db = False
+
+        # If no session in context, try to load from persistent storage (survives restarts)
+        if not claude_session_id:
+            try:
+                active_session = await claude_integration.get_user_active_session(
+                    user_id, thread_id
+                )
+                if active_session:
+                    claude_session_id = active_session[0]
+                    restored_from_db = True
+                    # Immediately save to context to prevent loss if exception occurs later
+                    context.user_data["claude_session_id"] = claude_session_id
+                    # Also restore the directory if it was stored
+                    stored_path = active_session[1]
+                    if stored_path:
+                        from pathlib import Path
+                        stored_dir = Path(stored_path)
+                        # Validate restored directory exists and is within approved path
+                        if stored_dir.exists() and str(stored_dir.resolve()).startswith(str(settings.approved_directory.resolve())):
+                            current_dir = stored_dir
+                            context.user_data["current_directory"] = current_dir
+                        else:
+                            logger.warning(
+                                "Restored directory invalid or outside approved path",
+                                stored_path=str(stored_dir),
+                                approved_directory=str(settings.approved_directory),
+                            )
+                    logger.info(
+                        "Restored session from persistent storage",
+                        session_id=claude_session_id,
+                        user_id=user_id,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to restore session from persistent storage",
+                    error=str(e),
+                    user_id=user_id,
+                )
+                active_session = None
 
         if claude_session_id:
-            # We have a session in context, continue it directly
+            # Build status message - note if session was restored after restart
+            restore_note = ""
+            if restored_from_db:
+                restore_note = "\n_(Session restored after bot restart)_\n"
+
             status_msg = await update.message.reply_text(
                 f"🔄 **Continuing Session**\n\n"
                 f"Session ID: `{claude_session_id[:8]}...`\n"
-                f"Directory: `{current_dir.relative_to(settings.approved_directory)}/`\n\n"
+                f"Directory: `{current_dir.relative_to(settings.approved_directory)}/`\n"
+                f"{restore_note}\n"
                 f"{'Processing your message...' if prompt else 'Continuing where you left off...'}",
                 parse_mode="Markdown",
             )
@@ -199,6 +252,7 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 working_directory=current_dir,
                 user_id=user_id,
                 session_id=claude_session_id,
+                thread_id=thread_id,
             )
         else:
             # No session in context, try to find the most recent session
@@ -212,11 +266,17 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 user_id=user_id,
                 working_directory=current_dir,
                 prompt=prompt,
+                thread_id=thread_id,
             )
 
         if claude_response:
             # Update session ID in context
             context.user_data["claude_session_id"] = claude_response.session_id
+
+            # Persist session for resume after restart
+            await claude_integration.set_user_active_session(
+                user_id, thread_id, claude_response.session_id, current_dir
+            )
 
             # Delete status message and send response
             await status_msg.delete()
@@ -224,12 +284,12 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             # Format and send Claude's response
             from ..utils.formatting import ResponseFormatter
 
-            formatter = ResponseFormatter()
-            formatted_messages = formatter.format_claude_response(claude_response)
+            formatter = ResponseFormatter(settings)
+            formatted_messages = formatter.format_claude_response(claude_response.content)
 
             for msg in formatted_messages:
                 await update.message.reply_text(
-                    msg.content,
+                    msg.text,
                     parse_mode="Markdown",
                     reply_markup=msg.reply_markup,
                 )
@@ -470,6 +530,25 @@ async def change_directory(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         # Clear Claude session on directory change
         context.user_data["claude_session_id"] = None
 
+        # Kill any persistent Claude process for this user/thread to prevent zombie processes
+        thread_id = _get_thread_id(update)
+        claude_integration: ClaudeIntegration = context.bot_data.get("claude_integration")
+        if claude_integration and hasattr(claude_integration, "persistent_manager"):
+            try:
+                await claude_integration.persistent_manager.kill_session(user_id, thread_id)
+                logger.debug(
+                    "Killed persistent Claude session on directory change",
+                    user_id=user_id,
+                    thread_id=thread_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to kill persistent Claude session",
+                    error=str(e),
+                    user_id=user_id,
+                    thread_id=thread_id,
+                )
+
         # Send confirmation
         relative_path = resolved_path.relative_to(settings.approved_directory)
         await update.message.reply_text(
@@ -615,14 +694,15 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Get context window status from persistent manager
     context_info = ""
+    sessions_info = ""
     if claude_integration and hasattr(claude_integration, "persistent_manager"):
         try:
-            session_status = claude_integration.persistent_manager.get_session_status(user_id, thread_id)
-            if session_status:
-                tokens_used = session_status.get("context_tokens_used", 0)
-                tokens_max = session_status.get("context_tokens_max", 200000)
-                context_pct = session_status.get("context_percentage", 0)
-                msg_count = session_status.get("message_count", 0)
+            current_session_status = claude_integration.persistent_manager.get_session_status(user_id, thread_id)
+            if current_session_status:
+                tokens_used = current_session_status.get("context_tokens_used", 0)
+                tokens_max = current_session_status.get("context_tokens_max", 200000)
+                context_pct = current_session_status.get("context_percentage", 0)
+                msg_count = current_session_status.get("message_count", 0)
 
                 # Format tokens in K
                 tokens_used_k = tokens_used / 1000
@@ -638,6 +718,29 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception:
             pass
 
+        # Get all active sessions
+        try:
+            all_sessions = claude_integration.persistent_manager.get_all_sessions_info()
+            session_count = len(all_sessions)
+            if session_count > 0:
+                sessions_info = f"🧵 Active Sessions: {session_count}\n"
+                for i, sess in enumerate(all_sessions, 1):
+                    sess_thread_id = sess.get("thread_id")
+                    sess_user_id = sess.get("user_id")
+                    sess_msgs = sess.get("message_count", 0)
+                    sess_ctx = sess.get("context_percentage", 0)
+                    # Mark current session
+                    is_current = (sess_user_id == user_id and sess_thread_id == thread_id)
+                    marker = " 👈" if is_current else ""
+                    # Format thread identifier
+                    if sess_thread_id:
+                        thread_label = f"Topic #{sess_thread_id}"
+                    else:
+                        thread_label = "Main chat"
+                    sessions_info += f"  {i}. {thread_label} ({sess_msgs} msgs, {sess_ctx:.0f}%){marker}\n"
+        except Exception:
+            pass
+
     # Format status message
     status_lines = [
         "📊 **Session Status**",
@@ -648,6 +751,9 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if context_info:
         status_lines.append(context_info.rstrip())
+
+    if sessions_info:
+        status_lines.append(sessions_info.rstrip())
 
     status_lines.extend([
         usage_info.rstrip() if usage_info else "",

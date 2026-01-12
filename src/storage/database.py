@@ -207,7 +207,7 @@ class DatabaseManager:
                 """
                 -- Add analytics views
                 CREATE VIEW IF NOT EXISTS daily_stats AS
-                SELECT 
+                SELECT
                     date(timestamp) as date,
                     COUNT(DISTINCT user_id) as active_users,
                     COUNT(*) as total_messages,
@@ -217,7 +217,7 @@ class DatabaseManager:
                 GROUP BY date(timestamp);
 
                 CREATE VIEW IF NOT EXISTS user_stats AS
-                SELECT 
+                SELECT
                     u.user_id,
                     u.telegram_username,
                     COUNT(DISTINCT s.session_id) as total_sessions,
@@ -228,6 +228,34 @@ class DatabaseManager:
                 LEFT JOIN sessions s ON u.user_id = s.user_id
                 LEFT JOIN messages m ON u.user_id = m.user_id
                 GROUP BY u.user_id;
+                """,
+            ),
+            (
+                3,
+                """
+                -- Add thread_id to sessions for Telegram forum topic support
+                ALTER TABLE sessions ADD COLUMN thread_id INTEGER;
+
+                -- Create index for efficient thread-based lookups
+                CREATE INDEX idx_sessions_thread_id ON sessions(thread_id);
+                CREATE INDEX idx_sessions_user_thread ON sessions(user_id, thread_id);
+                """,
+            ),
+            (
+                4,
+                """
+                -- Track active session per user/thread for resume after restart
+                CREATE TABLE IF NOT EXISTS user_active_sessions (
+                    user_id INTEGER NOT NULL,
+                    thread_id INTEGER,
+                    session_id TEXT NOT NULL,
+                    project_path TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, thread_id),
+                    FOREIGN KEY (user_id) REFERENCES users(user_id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_active_sessions_user ON user_active_sessions(user_id);
                 """,
             ),
         ]
