@@ -12,10 +12,7 @@ from src.storage.facade import Storage
 
 from .conversation_mode import ConversationEnhancer
 from .file_handler import FileHandler
-from .git_integration import GitIntegration
 from .image_handler import ImageHandler
-from .quick_actions import QuickActionManager
-from .session_export import SessionExporter
 
 logger = structlog.get_logger(__name__)
 
@@ -45,29 +42,6 @@ class FeatureRegistry:
                 logger.info("File handler feature enabled")
             except Exception as e:
                 logger.error("Failed to initialize file handler", error=str(e))
-
-        # Git integration - conditionally enabled
-        if self.config.enable_git_integration:
-            try:
-                self.features["git"] = GitIntegration(settings=self.config)
-                logger.info("Git integration feature enabled")
-            except Exception as e:
-                logger.error("Failed to initialize git integration", error=str(e))
-
-        # Quick actions - conditionally enabled
-        if self.config.enable_quick_actions:
-            try:
-                self.features["quick_actions"] = QuickActionManager()
-                logger.info("Quick actions feature enabled")
-            except Exception as e:
-                logger.error("Failed to initialize quick actions", error=str(e))
-
-        # Session export - always enabled
-        try:
-            self.features["session_export"] = SessionExporter(storage=self.storage)
-            logger.info("Session export feature enabled")
-        except Exception as e:
-            logger.error("Failed to initialize session export", error=str(e))
 
         # Image handling - always enabled
         try:
@@ -99,18 +73,6 @@ class FeatureRegistry:
     def get_file_handler(self) -> Optional[FileHandler]:
         """Get file handler feature"""
         return self.get_feature("file_handler")
-
-    def get_git_integration(self) -> Optional[GitIntegration]:
-        """Get git integration feature"""
-        return self.get_feature("git")
-
-    def get_quick_actions(self) -> Optional[QuickActionManager]:
-        """Get quick actions feature"""
-        return self.get_feature("quick_actions")
-
-    def get_session_export(self) -> Optional[SessionExporter]:
-        """Get session export feature"""
-        return self.get_feature("session_export")
 
     def get_image_handler(self) -> Optional[ImageHandler]:
         """Get image handler feature"""

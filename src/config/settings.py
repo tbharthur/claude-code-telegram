@@ -130,9 +130,7 @@ class Settings(BaseSettings):
     mcp_config_path: Optional[Path] = Field(
         None, description="MCP configuration file path"
     )
-    enable_git_integration: bool = Field(True, description="Enable git commands")
     enable_file_uploads: bool = Field(True, description="Enable file upload handling")
-    enable_quick_actions: bool = Field(True, description="Enable quick action buttons")
 
     # Monitoring
     log_level: str = Field("INFO", description="Logging level")

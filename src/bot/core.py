@@ -86,15 +86,8 @@ class ClaudeCodeBot:
             BotCommand("help", "Show available commands"),
             BotCommand("new", "Start new Claude session"),
             BotCommand("continue", "Continue last session"),
-            BotCommand("ls", "List files in current directory"),
-            BotCommand("cd", "Change directory"),
-            BotCommand("pwd", "Show current directory"),
-            BotCommand("projects", "Show all projects"),
             BotCommand("status", "Show session status"),
             BotCommand("stop", "Stop Claude's current operation"),
-            BotCommand("export", "Export current session"),
-            BotCommand("actions", "Show quick actions"),
-            BotCommand("git", "Git repository commands"),
         ]
 
         await self.app.bot.set_my_commands(commands)
@@ -111,15 +104,8 @@ class ClaudeCodeBot:
             ("new", command.new_session),
             ("continue", command.continue_session),
             ("end", command.end_session),
-            ("ls", command.list_files),
-            ("cd", command.change_directory),
-            ("pwd", command.print_working_directory),
-            ("projects", command.show_projects),
             ("status", command.session_status),
             ("stop", command.stop_command),
-            ("export", command.export_session),
-            ("actions", command.quick_actions),
-            ("git", command.git_command),
         ]
 
         for cmd, handler in handlers:
@@ -147,8 +133,7 @@ class ClaudeCodeBot:
         # This catches /commit, /review, etc. that are Claude Code commands
         # Exclude known bot commands to prevent double-handling
         known_commands = [
-            "start", "help", "new", "continue", "end", "ls", "cd", "pwd",
-            "projects", "status", "stop", "export", "actions", "git"
+            "start", "help", "new", "continue", "end", "status", "stop"
         ]
         known_command_filter = filters.COMMAND & ~filters.Regex(
             r"^/(" + "|".join(known_commands) + r")(\s|$)"
