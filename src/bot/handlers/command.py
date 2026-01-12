@@ -12,6 +12,14 @@ from ...security.audit import AuditLogger
 
 logger = structlog.get_logger()
 
+__all__ = [
+    "start_command",
+    "help_command",
+    "continue_session",
+    "session_status",
+    "stop_command",
+]
+
 
 def _get_thread_id(update: Update) -> Optional[int]:
     """Get message_thread_id for threaded mode support."""
@@ -25,35 +33,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = update.effective_user
 
     welcome_message = (
-        f"👋 Welcome to Claude Code Telegram Bot, {user.first_name}!\n\n"
-        f"🤖 I help you access Claude Code remotely through Telegram.\n\n"
-        f"**Available Commands:**\n"
-        f"• `/help` - Show detailed help\n"
-        f"• `/new` - Start a new Claude session\n"
-        f"• `/continue` - Continue last session\n"
-        f"• `/status` - Show session status\n"
-        f"• `/stop` - Stop current operation\n\n"
-        f"**Quick Start:**\n"
-        f"Send any message to start coding with Claude!\n\n"
-        f"🔒 Your access is secured and all actions are logged.\n"
-        f"📊 Use `/status` to check your usage limits."
+        f"Welcome to Claude Code, {user.first_name}!\n\n"
+        f"Send any message to start coding.\n"
+        f"Use /clear to start fresh, /continue to resume, /status to check session."
     )
 
-    # Add quick action buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("🆕 New Session", callback_data="action:new_session"),
-            InlineKeyboardButton("❓ Get Help", callback_data="action:help"),
-        ],
-        [
-            InlineKeyboardButton("📊 Check Status", callback_data="action:status"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        welcome_message, parse_mode="Markdown", reply_markup=reply_markup
-    )
+    await update.message.reply_text(welcome_message, parse_mode="Markdown")
 
     # Log command
     audit_logger: AuditLogger = context.bot_data.get("audit_logger")
@@ -66,77 +51,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
     help_text = (
-        "🤖 **Claude Code Telegram Bot Help**\n\n"
-        "**Session Commands:**\n"
-        "• `/new` - Start new Claude session\n"
+        "**Claude Code Telegram Bot Help**\n\n"
+        "**Commands:**\n"
         "• `/continue [message]` - Continue last session (optionally with message)\n"
-        "• `/end` - End current session\n"
         "• `/status` - Show session and usage status\n"
         "• `/stop` - Stop current operation\n\n"
-        "**Usage Examples:**\n"
-        "• `Create a simple Python script` - Ask Claude to code\n"
-        "• Send a file to have Claude review it\n"
-        "• Use Claude slash commands like `/commit`, `/review`\n\n"
+        "**Usage:**\n"
+        "• Send any message to interact with Claude\n"
+        "• Send a file for Claude to review it\n"
+        "• Use Claude slash commands like `/commit`, `/review`\n"
+        "• Use /clear to start a fresh session\n\n"
         "**File Operations:**\n"
         "• Send text files (.py, .js, .md, etc.) for review\n"
         "• Claude can read, modify, and create files\n"
         "• All file operations are within your approved directory\n\n"
-        "**Security Features:**\n"
-        "• 🔒 Path traversal protection\n"
-        "• ⏱️ Rate limiting to prevent abuse\n"
-        "• 📊 Usage tracking and limits\n"
-        "• 🛡️ Input validation and sanitization\n\n"
         "**Tips:**\n"
         "• Use specific, clear requests for best results\n"
         "• Check `/status` to monitor your usage\n"
-        "• File uploads are automatically processed by Claude\n\n"
-        "Need more help? Contact your administrator."
+        "• File uploads are automatically processed by Claude"
     )
 
     await update.message.reply_text(help_text, parse_mode="Markdown")
-
-
-async def new_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /new command."""
-    settings: Settings = context.bot_data["settings"]
-    user_id = update.effective_user.id
-    thread_id = _get_thread_id(update)
-
-    # For now, we'll use a simple session concept
-    # This will be enhanced when we implement proper session management
-
-    # Get current directory (default to approved directory)
-    current_dir = context.user_data.get(
-        "current_directory", settings.approved_directory
-    )
-    relative_path = current_dir.relative_to(settings.approved_directory)
-
-    # Clear any existing session data
-    context.user_data["claude_session_id"] = None
-    context.user_data["session_started"] = True
-
-    # Clear persistent active session
-    claude_integration = context.bot_data.get("claude_integration")
-    if claude_integration:
-        await claude_integration.clear_user_active_session(user_id, thread_id)
-
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "📝 Start Coding", callback_data="action:start_coding"
-            ),
-            InlineKeyboardButton("❓ Help", callback_data="action:help"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        f"🆕 **New Claude Code Session**\n\n"
-        f"📂 Working directory: `{relative_path}/`\n\n"
-        f"Ready to help you code! Send me a message to get started, or use the buttons below:",
-        parse_mode="Markdown",
-        reply_markup=reply_markup,
-    )
 
 
 async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -283,23 +218,8 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 "❌ **No Session Found**\n\n"
                 f"No recent Claude session found in this directory.\n"
                 f"Directory: `{current_dir.relative_to(settings.approved_directory)}/`\n\n"
-                f"**What you can do:**\n"
-                f"• Use `/new` to start a fresh session\n"
-                f"• Use `/status` to check your sessions\n"
-                f"• Just ask me to work in a different directory",
+                f"Send any message to start a new session.",
                 parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton(
-                                "🆕 New Session", callback_data="action:new_session"
-                            ),
-                            InlineKeyboardButton(
-                                "📊 Status", callback_data="action:status"
-                            ),
-                        ]
-                    ]
-                ),
             )
 
     except Exception as e:
@@ -318,10 +238,7 @@ async def continue_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             f"❌ **Error Continuing Session**\n\n"
             f"An error occurred while trying to continue your session:\n\n"
             f"`{error_msg}`\n\n"
-            f"**Suggestions:**\n"
-            f"• Try starting a new session with `/new`\n"
-            f"• Check your session status with `/status`\n"
-            f"• Contact support if the issue persists",
+            f"Send any message to start a new session, or use `/status` to check status.",
             parse_mode="Markdown",
         )
 
@@ -438,97 +355,15 @@ async def session_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if claude_session_id:
         status_lines.append(f"🆔 Session ID: `{claude_session_id[:8]}...`")
 
-    # Add action buttons
-    keyboard = []
-    if claude_session_id:
-        keyboard.append(
-            [
-                InlineKeyboardButton("🔄 Continue", callback_data="action:continue"),
-                InlineKeyboardButton(
-                    "🆕 New Session", callback_data="action:new_session"
-                ),
-            ]
-        )
-    else:
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    "🆕 Start Session", callback_data="action:new_session"
-                )
-            ]
-        )
-
-    keyboard.append(
-        [
-            InlineKeyboardButton("🔄 Refresh", callback_data="action:refresh_status"),
-        ]
-    )
-
+    # Add Refresh button only
+    keyboard = [
+        [InlineKeyboardButton("🔄 Refresh", callback_data="action:refresh_status")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
         "\n".join(status_lines), parse_mode="Markdown", reply_markup=reply_markup
     )
-
-
-async def end_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /end command to terminate the current session."""
-    user_id = update.effective_user.id
-    settings: Settings = context.bot_data["settings"]
-
-    # Check if there's an active session
-    claude_session_id = context.user_data.get("claude_session_id")
-
-    if not claude_session_id:
-        await update.message.reply_text(
-            "ℹ️ **No Active Session**\n\n"
-            "There's no active Claude session to end.\n\n"
-            "**What you can do:**\n"
-            "• Use `/new` to start a new session\n"
-            "• Use `/status` to check your session status\n"
-            "• Send any message to start a conversation"
-        )
-        return
-
-    # Get current directory for display
-    current_dir = context.user_data.get(
-        "current_directory", settings.approved_directory
-    )
-    relative_path = current_dir.relative_to(settings.approved_directory)
-
-    # Clear session data
-    context.user_data["claude_session_id"] = None
-    context.user_data["session_started"] = False
-    context.user_data["last_message"] = None
-
-    # Create quick action buttons
-    keyboard = [
-        [
-            InlineKeyboardButton("🆕 New Session", callback_data="action:new_session"),
-            InlineKeyboardButton("📊 Status", callback_data="action:status"),
-        ],
-        [
-            InlineKeyboardButton("❓ Help", callback_data="action:help"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        "✅ **Session Ended**\n\n"
-        f"Your Claude session has been terminated.\n\n"
-        f"**Current Status:**\n"
-        f"• Directory: `{relative_path}/`\n"
-        f"• Session: None\n"
-        f"• Ready for new commands\n\n"
-        f"**Next Steps:**\n"
-        f"• Start a new session with `/new`\n"
-        f"• Check status with `/status`\n"
-        f"• Send any message to begin a new conversation",
-        parse_mode="Markdown",
-        reply_markup=reply_markup,
-    )
-
-    logger.info("Session ended by user", user_id=user_id, session_id=claude_session_id)
 
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -552,12 +387,12 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(
             "🛑 **Interrupt Sent**\n\n"
             "Sent interrupt signal to Claude. It should stop its current operation.\n\n"
-            "If Claude doesn't respond, use `/end` to terminate the session."
+            "If Claude doesn't respond, use /clear to start fresh."
         )
         logger.info("Interrupt signal sent", user_id=user_id, thread_id=thread_id)
     else:
         await update.message.reply_text(
             "ℹ️ **No Active Process**\n\n"
             "No active Claude process to interrupt.\n\n"
-            "Use `/new` to start a new session."
+            "Send any message to start coding."
         )

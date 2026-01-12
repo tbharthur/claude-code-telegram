@@ -96,7 +96,7 @@ def _format_error_message(error_str: str) -> str:
             f"🔄 **Session Not Found**\n\n"
             f"The Claude session could not be found or has expired.\n\n"
             f"**What you can do:**\n"
-            f"• Use `/new` to start a fresh session\n"
+            f"• Use /clear to start a fresh session\n"
             f"• Try your request again\n"
             f"• Use `/status` to check your current session"
         )

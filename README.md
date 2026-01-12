@@ -189,37 +189,17 @@ make run
 
 ## 📱 Usage
 
-### Basic Commands
+### Commands
 
 Once your bot is running, you can use these commands in Telegram:
 
-#### Navigation Commands
 ```
-/ls                    # List files in current directory
-/cd myproject         # Change to project directory  
-/pwd                  # Show current directory
-/projects             # Show available projects
-```
-
-#### Session Management
-```
-/new                  # Start a new Claude session
+/start                # Welcome message
+/help                 # Show available commands
 /continue [message]   # Continue previous session (optionally with message)
-/end                  # End current session
 /status               # Show session status and usage
-/export               # Export session (choose format: Markdown, HTML, JSON)
-```
-
-#### Advanced Features
-```
-/git                  # Show git repository info (status, diff, log)
-/actions              # Show context-aware quick actions
-```
-
-#### Getting Help
-```
-/start                # Welcome message and setup
-/help                 # Show all available commands
+/stop                 # Stop current Claude operation
+/clear                # Start fresh session (passed to Claude)
 ```
 
 ### Talking to Claude

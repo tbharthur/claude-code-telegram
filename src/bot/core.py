@@ -84,7 +84,6 @@ class ClaudeCodeBot:
         commands = [
             BotCommand("start", "Start bot and show help"),
             BotCommand("help", "Show available commands"),
-            BotCommand("new", "Start new Claude session"),
             BotCommand("continue", "Continue last session"),
             BotCommand("status", "Show session status"),
             BotCommand("stop", "Stop Claude's current operation"),
@@ -101,9 +100,7 @@ class ClaudeCodeBot:
         handlers = [
             ("start", command.start_command),
             ("help", command.help_command),
-            ("new", command.new_session),
             ("continue", command.continue_session),
-            ("end", command.end_session),
             ("status", command.session_status),
             ("stop", command.stop_command),
         ]
@@ -132,9 +129,7 @@ class ClaudeCodeBot:
         # Fallback handler for unrecognized slash commands (passes to Claude)
         # This catches /commit, /review, etc. that are Claude Code commands
         # Exclude known bot commands to prevent double-handling
-        known_commands = [
-            "start", "help", "new", "continue", "end", "status", "stop"
-        ]
+        known_commands = ["start", "help", "continue", "status", "stop"]
         known_command_filter = filters.COMMAND & ~filters.Regex(
             r"^/(" + "|".join(known_commands) + r")(\s|$)"
         )
