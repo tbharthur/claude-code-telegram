@@ -87,6 +87,7 @@ class ClaudeCodeBot:
             BotCommand("continue", "Continue last session"),
             BotCommand("status", "Show session status"),
             BotCommand("stop", "Stop Claude's current operation"),
+            BotCommand("restart", "Restart Claude (reload MCP servers)"),
         ]
 
         await self.app.bot.set_my_commands(commands)
@@ -103,6 +104,7 @@ class ClaudeCodeBot:
             ("continue", command.continue_session),
             ("status", command.session_status),
             ("stop", command.stop_command),
+            ("restart", command.restart_command),
         ]
 
         for cmd, handler in handlers:
@@ -129,7 +131,7 @@ class ClaudeCodeBot:
         # Fallback handler for unrecognized slash commands (passes to Claude)
         # This catches /commit, /review, etc. that are Claude Code commands
         # Exclude known bot commands to prevent double-handling
-        known_commands = ["start", "help", "continue", "status", "stop"]
+        known_commands = ["start", "help", "continue", "status", "stop", "restart"]
         known_command_filter = filters.COMMAND & ~filters.Regex(
             r"^/(" + "|".join(known_commands) + r")(\s|$)"
         )

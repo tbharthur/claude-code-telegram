@@ -55,7 +55,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "**Commands:**\n"
         "• `/continue [message]` - Continue last session (optionally with message)\n"
         "• `/status` - Show session and usage status\n"
-        "• `/stop` - Stop current operation\n\n"
+        "• `/stop` - Stop current operation\n"
+        "• `/restart` - Restart Claude (reload MCP servers)\n\n"
         "**Usage:**\n"
         "• Send any message to interact with Claude\n"
         "• Send a file for Claude to review it\n"
@@ -395,4 +396,45 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "ℹ️ **No Active Process**\n\n"
             "No active Claude process to interrupt.\n\n"
             "Send any message to start coding."
+        )
+
+
+async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /restart command to kill Claude process and reload MCP servers.
+
+    Keeps session context so conversation can resume with new config.
+    Use /clear if you want a completely fresh start.
+    """
+    user_id = update.effective_user.id
+    thread_id = _get_thread_id(update)
+
+    claude: ClaudeIntegration = context.bot_data.get("claude")
+    if not claude:
+        await update.message.reply_text(
+            "❌ **Cannot Restart**\n\n"
+            "Claude integration not available."
+        )
+        return
+
+    # Kill the Claude process (but keep session for resume)
+    killed = False
+    if hasattr(claude, "persistent_manager"):
+        key = (user_id, thread_id)
+        if key in claude.persistent_manager.sessions:
+            await claude.persistent_manager.kill_session(user_id, thread_id)
+            killed = True
+
+    if killed:
+        await update.message.reply_text(
+            "🔄 **Claude Restarted**\n\n"
+            "Claude process terminated. Session context preserved.\n"
+            "Send any message to resume (new MCP servers will be loaded).\n\n"
+            "Use /clear if you want a completely fresh start."
+        )
+        logger.info("Claude restarted", user_id=user_id, thread_id=thread_id)
+    else:
+        await update.message.reply_text(
+            "ℹ️ **No Active Process**\n\n"
+            "No Claude process running to restart.\n"
+            "Send any message to start."
         )
